@@ -53,6 +53,7 @@ def test_run_mix_end_to_end(tmp_path, synth_stems):
     mixed = runs / res["id"] / "mixed"
     assert (mixed / "master.wav").exists()
     assert (mixed / "dashboard.html").exists()
+    assert (mixed / "mixed_stems.zip").exists()  # processed stems returned as a zip
     assert "<svg" in (mixed / "dashboard.html").read_text()
 
 

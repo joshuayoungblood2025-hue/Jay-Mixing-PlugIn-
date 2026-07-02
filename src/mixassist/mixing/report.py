@@ -44,6 +44,7 @@ def build_report(
                 "features": p.features.summary(),
                 "locked": p.locked,
                 "muted": p.muted,
+                "input_stage_db": round(p.input_stage_db, 2),
                 "gain_db": round(p.gain_db, 2),
                 "gain_trim_db": round(p.gain_trim_db, 2),
                 "pan": round(p.pan, 2),
@@ -135,6 +136,8 @@ def render_text(
         if p.locked:
             add("    [locked] passed through unprocessed")
             continue
+        if p.input_stage_db != 0.0:
+            add(f"    staged: {_fmt_db(p.input_stage_db)} to ~-18 dBFS RMS (before any plugins)")
         add(
             f"    level : in {_fmt_lufs(p.in_lufs)} -> gain {_fmt_db(p.gain_db)} "
             f"(pre-gain {_fmt_lufs(p.out_lufs)}) | pan {p.pan:+.2f} | width {p.width:.2f}"

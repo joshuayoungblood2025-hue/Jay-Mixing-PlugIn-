@@ -14,6 +14,7 @@ Everything is deterministic and explainable; the returned plans/report capture e
 
 from __future__ import annotations
 
+import math
 from array import array
 from dataclasses import dataclass, field
 
@@ -32,7 +33,7 @@ from mixassist.dsp.compressor import CompressorSettings, compress, limit, sidech
 from mixassist.dsp.delay import StereoDelay
 from mixassist.dsp.eq import EQBand, apply_eq
 from mixassist.dsp.gain import db_to_lin, lin_to_db, mix_into, pan_to_stereo
-from mixassist.dsp.loudness import integrated_lufs, peak_dbfs
+from mixassist.dsp.loudness import integrated_lufs, peak_dbfs, rms_dbfs
 from mixassist.dsp.onset import build_trigger, detect_kick_onsets
 from mixassist.dsp.reverb import Reverb
 from mixassist.dsp.saturation import saturate
@@ -40,6 +41,11 @@ from mixassist.mixing import reference as refmod
 from mixassist.mixing.targets import STEM_ANCHOR_LUFS, GenreTarget, get_target
 
 _CENTERED_SUBTYPES = {"kick", "lead_vocal", "808", "sub", "bass"}
+
+# Industry-standard input gain-staging targets (the "-18 dBFS = 0 VU" convention):
+# aim each raw stem at ~-18 dBFS RMS average, but never push peaks past -6 dBFS.
+STAGE_TARGET_RMS_DB = -18.0
+STAGE_PEAK_CEIL_DB = -6.0
 
 # Per-role/-subtype send amounts for the creative FX return buses (0..1). Looked up by
 # subtype first, then role. These are tasteful engineering defaults, scaled by the user's
@@ -176,6 +182,7 @@ class TrackPlan:
     features: Features
     locked: bool
     muted: bool = False
+    input_stage_db: float = 0.0
     gain_db: float = 0.0
     gain_trim_db: float = 0.0
     pan: float = 0.0
@@ -344,29 +351,61 @@ def _desired_lufs(role: str, target: GenreTarget, s: MixSettings) -> float:
 # ----------------------------------------------------------------------------- panning
 
 
+# Intentional stereo placement (magnitudes 0..1, scaled by the genre's spread). Kick,
+# snare, bass, sub/808 and lead vocal stay centered; everything else is spread like a real
+# engineer would — hats slightly off, toms/overheads wider, guitars/keys/synths out to the
+# sides, pads/strings widest, backing vocals opposite the lead.
+_PAN_CENTER = {"kick", "snare", "bass", "sub", "808", "lead_vocal", "vocal", "rap", "clap"}
+_PAN_BASE = {
+    "hihat": 0.28,
+    "cymbal": 0.45,
+    "ride": 0.5,
+    "crash": 0.55,
+    "tom": 0.4,
+    "percussion": 0.5,
+    "guitar": 0.55,
+    "keys": 0.4,
+    "piano": 0.35,
+    "organ": 0.45,
+    "synth": 0.55,
+    "pad": 0.7,
+    "strings": 0.65,
+    "horns": 0.45,
+    "lead": 0.45,
+    "backing_vocal": 0.5,
+    "adlib": 0.6,
+    "fx": 0.65,
+    "riser": 0.6,
+    "sweep": 0.6,
+    # role fallbacks
+    "drums": 0.35,
+    "instrument": 0.45,
+}
+
+
 class _Panner:
-    """Assigns deterministic pan positions, keeping key roles centered."""
+    """Intentional, engineer-style panning: anchors centered, everything else placed."""
 
     def __init__(self, spread: float) -> None:
         self.spread = spread
-        self._n = 0
+        self._count: dict[str, int] = {}
 
     def place(self, role: str, subtype: str, feat: Features) -> tuple[float, float]:
-        centered = subtype in _CENTERED_SUBTYPES or role == BASS
+        width = 1.0 if feat.num_channels > 1 else 0.0
+        centered = subtype in _PAN_CENTER or role == BASS
         if role == VOCAL and subtype in ("vocal", "lead_vocal", "rap"):
             centered = True
         if centered:
-            return 0.0, min(1.0, feat.stereo_width if feat.stereo_width else 0.0) or (
-                1.0 if feat.num_channels > 1 else 0.0
-            )
-        # Spread remaining sources alternately outward.
-        k = self._n
-        self._n += 1
-        sign = -1.0 if (k % 2 == 0) else 1.0
-        step = (k // 2 + 1) / 3.0
-        pos = sign * self.spread * min(1.0, step)
-        width = 1.0 if feat.num_channels > 1 else 0.0
-        return pos, width
+            return 0.0, width
+
+        base = _PAN_BASE.get(subtype, _PAN_BASE.get(role, 0.4))
+        # Alternate sides for successive tracks of the same subtype, widening each pair a bit.
+        c = self._count.get(subtype, 0)
+        self._count[subtype] = c + 1
+        sign = 1.0 if (c % 2 == 0) else -1.0
+        widen = 1.0 + 0.12 * (c // 2)
+        pos = sign * min(1.0, base * widen) * self.spread
+        return max(-1.0, min(1.0, pos)), width
 
 
 # ----------------------------------------------------------------------------- engine
@@ -375,10 +414,24 @@ class _Panner:
 def _process_track(name: str, buf: AudioBuffer, plan: TrackPlan, s: MixSettings) -> AudioBuffer:
     work = buf.copy()
     if not plan.locked:
+        # 1) Industry-standard INPUT GAIN STAGING (before any plugins): bring the raw stem
+        #    to ~-18 dBFS RMS average (the "-18 dBFS = 0 VU" sweet spot analog-modeled
+        #    plugins expect), but never let peaks exceed -6 dBFS. This makes the EQ and
+        #    compression that follow behave correctly and consistently.
+        if not plan.features.silence:
+            rms = rms_dbfs(work.mono())
+            pk = peak_dbfs(work)
+            if math.isfinite(rms) and math.isfinite(pk):
+                stage = min(STAGE_TARGET_RMS_DB - rms, STAGE_PEAK_CEIL_DB - pk)
+                stage = max(-24.0, min(24.0, stage))
+                plan.input_stage_db = stage
+                if abs(stage) > 0.01:
+                    work.apply_gain(db_to_lin(stage))
+        # 2) EQ, 3) compression (now hitting proper levels)
         apply_eq(work, plan.eq_bands)
         if plan.comp is not None:
             plan.comp_gr_db = compress(work, plan.comp)
-        # Re-measure post-EQ/comp and gain-stage to the balance target.
+        # 4) Re-measure post-EQ/comp and gain-stage to the balance target.
         measured = integrated_lufs(work)
         plan.out_lufs = measured
         if plan.gain_db != 0.0:

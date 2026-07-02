@@ -19,7 +19,8 @@ def test_returns_loudness_note(synth_stems):
 
 
 def test_heavy_processing_triggers_limiter_warning(synth_stems):
-    sug = _mix_and_suggest(synth_stems, MixSettings(genre="edm", intensity=1.0))
+    # Force hard limiting by targeting an unrealistically hot loudness.
+    sug = _mix_and_suggest(synth_stems, MixSettings(genre="edm", intensity=1.0, target_lufs=-6.0))
     assert any(s.area == "limiter" and s.severity == WARN for s in sug)
 
 

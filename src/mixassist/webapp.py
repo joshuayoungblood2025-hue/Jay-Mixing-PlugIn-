@@ -13,6 +13,7 @@ import json
 import shutil
 import time
 import webbrowser
+import zipfile
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
@@ -30,6 +31,7 @@ _CONTENT_TYPES = {
     ".wav": "audio/wav",
     ".txt": "text/plain; charset=utf-8",
     ".json": "application/json",
+    ".zip": "application/zip",
 }
 
 
@@ -146,6 +148,11 @@ def _run_mix(runs_root: Path, fields: dict, files: list[tuple[str, bytes]]) -> d
         json.dumps(build_report(result, settings, metrics, suggestions), indent=2)
     )
 
+    stems_zip = out_dir / "mixed_stems.zip"
+    with zipfile.ZipFile(stems_zip, "w", zipfile.ZIP_DEFLATED) as z:
+        for w in sorted((out_dir / "stems").glob("*.wav")):
+            z.write(w, arcname=w.name)
+
     return {
         "ok": True,
         "id": run_id,
@@ -154,6 +161,7 @@ def _run_mix(runs_root: Path, fields: dict, files: list[tuple[str, bytes]]) -> d
         "peak": round(metrics.peak_dbfs, 1),
         "dashboard": f"/runs/{run_id}/mixed/dashboard.html",
         "master": f"/runs/{run_id}/mixed/master.wav",
+        "stems_zip": f"/runs/{run_id}/mixed/mixed_stems.zip",
         "report": f"/runs/{run_id}/mixed/mix_report.txt",
     }
 
@@ -187,7 +195,7 @@ def make_handler(runs_root: Path):
                     return
                 ext = target.suffix.lower()
                 ctype = _CONTENT_TYPES.get(ext, "application/octet-stream")
-                dl = target.name if ext == ".wav" else None
+                dl = target.name if ext == ".zip" else None  # wav plays inline; zip downloads
                 self._send(200, target.read_bytes(), ctype, download=dl)
                 return
             self._send(404, b"not found", "text/plain")
@@ -260,6 +268,9 @@ button:disabled{opacity:.5;cursor:default}
 #status{margin-top:14px;color:#94a3b8;font-size:14px;min-height:20px}
 a.dl{display:inline-block;margin-top:12px;margin-right:10px;padding:9px 14px;border-radius:9px;background:#22c55e;color:#04220f;font-weight:700;text-decoration:none}
 a.rep{background:#334155;color:#e2e8f0}
+.player{margin:14px 0}
+.player audio{width:100%}
+.plabel{color:#94a3b8;font-size:12px;margin:0 0 6px}
 iframe{width:100%;height:640px;border:0;border-radius:12px;margin-top:16px;background:#0b1220}
 .hint{color:#64748b;font-size:12px;margin-top:8px}
 </style></head><body><div class="wrap">
@@ -325,8 +336,10 @@ async function doMix(auto){
     const d=await r.json();
     if(!d.ok){$('#status').textContent='Error: '+d.error;}
     else{
-      $('#status').textContent='Done — '+d.tracks+' tracks mixed. Master: '+d.lufs+' LUFS, peak '+d.peak+' dBFS.';
-      $('#links').innerHTML='<a class="dl" href="'+d.master+'" download>Download master.wav</a>'
+      $('#status').textContent='Done — '+d.tracks+' tracks balanced. Preview below, then download the stems.';
+      $('#links').innerHTML='<div class="player"><div class="plabel">Preview the balanced mix:</div>'
+        +'<audio controls preload="none" src="'+d.master+'"></audio></div>'
+        +'<a class="dl" href="'+d.stems_zip+'" download>Download mixed stems (.zip)</a>'
         +'<a class="dl rep" href="'+d.report+'" target="_blank">View report</a>';
       $('#dash').innerHTML='<iframe src="'+d.dashboard+'"></iframe>';
     }

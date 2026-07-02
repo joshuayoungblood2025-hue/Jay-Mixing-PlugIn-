@@ -205,11 +205,19 @@ trained neural network, so it runs on your machine, not in this package.
 ## Mix-prep mode (balance/EQ/comp/pan only — master in your DAW)
 
 Set `master=False` (CLI `--no-master`, and the **default in the web app**) to get a clean,
-**un-mastered** mix: it still classifies, **gain-stages, balances, EQs, compresses and pans**
-every track, but skips bus glue, loudness maximizing, the limiter, and creative FX. The
-output is peak-normalized to ~ -6 dBFS so it doesn't clip and leaves headroom to **master
-and add reverb/delay/saturation yourself in Logic** (or any DAW). One-click **Auto Mix** in
-the app uses genre-appropriate settings so you don't touch a single fader.
+**un-mastered** mix for finishing in your DAW. It:
+
+- **Gain-stages every track to the industry-standard ~-18 dBFS RMS** (the "-18 dBFS = 0 VU"
+  sweet spot), with peaks kept under -6 dBFS, **before any EQ/compression** — so the
+  processing hits at correct levels.
+- **Classifies, balances, EQs, compresses, and pans** each track (intentional panning:
+  kick/snare/bass/lead-vocal centered, everything else placed like an engineer would).
+- **Skips** bus glue, loudness maximizing, the limiter, and creative FX.
+- Leaves the bus peaking ~ -6 dBFS — headroom to **master and add reverb/FX yourself**.
+
+The web app returns the **processed stems as a downloadable `.zip`** (re-import them into
+Logic to keep mixing) plus an in-page **play button** to preview the balanced mix. One-click
+**Auto Mix** uses genre-appropriate settings so you don't touch a fader.
 
 ## Creative FX (reverb / delay / saturation)
 
