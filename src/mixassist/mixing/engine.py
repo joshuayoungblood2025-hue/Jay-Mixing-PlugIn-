@@ -14,6 +14,7 @@ Everything is deterministic and explainable; the returned plans/report capture e
 
 from __future__ import annotations
 
+from array import array
 from dataclasses import dataclass, field
 
 from mixassist.analysis.classify import (
@@ -28,13 +29,64 @@ from mixassist.analysis.features import Features, extract_features
 from mixassist.analysis.spectrum import tonal_balance
 from mixassist.audio.buffer import AudioBuffer
 from mixassist.dsp.compressor import CompressorSettings, compress, limit
+from mixassist.dsp.delay import StereoDelay
 from mixassist.dsp.eq import EQBand, apply_eq
 from mixassist.dsp.gain import db_to_lin, mix_into, pan_to_stereo
 from mixassist.dsp.loudness import integrated_lufs, peak_dbfs
+from mixassist.dsp.reverb import Reverb
+from mixassist.dsp.saturation import saturate
 from mixassist.mixing import reference as refmod
 from mixassist.mixing.targets import STEM_ANCHOR_LUFS, GenreTarget, get_target
 
 _CENTERED_SUBTYPES = {"kick", "lead_vocal", "808", "sub", "bass"}
+
+# Per-role/-subtype send amounts for the creative FX return buses (0..1). Looked up by
+# subtype first, then role. These are tasteful engineering defaults, scaled by the user's
+# Reverb/Delay amount.
+_REVERB_SENDS = {
+    "vocal": 0.9,
+    "lead_vocal": 1.0,
+    "backing_vocal": 0.9,
+    "rap": 0.5,
+    "snare": 0.5,
+    "drums": 0.3,
+    "hihat": 0.15,
+    "cymbal": 0.2,
+    "kick": 0.0,
+    "808": 0.0,
+    "sub": 0.0,
+    "bass": 0.0,
+    "instrument": 0.4,
+    "synth": 0.45,
+    "guitar": 0.4,
+    "keys": 0.4,
+    "piano": 0.35,
+    "pad": 0.6,
+    "strings": 0.55,
+    "fx": 0.6,
+}
+_DELAY_SENDS = {
+    "vocal": 0.45,
+    "lead_vocal": 0.55,
+    "rap": 0.4,
+    "snare": 0.15,
+    "drums": 0.0,
+    "kick": 0.0,
+    "808": 0.0,
+    "sub": 0.0,
+    "bass": 0.0,
+    "instrument": 0.25,
+    "synth": 0.3,
+    "guitar": 0.3,
+    "keys": 0.2,
+    "fx": 0.4,
+}
+
+
+def _send_amount(table: dict[str, float], role: str, subtype: str) -> float:
+    if subtype in table:
+        return table[subtype]
+    return table.get(role, 0.0)
 
 
 @dataclass
@@ -62,6 +114,10 @@ class MixSettings:
     reference: object | None = None  # TonalBalance or None
     track_overrides: dict[str, TrackOverride] = field(default_factory=dict)
     target_override: GenreTarget | None = None  # a learned profile / custom target, or None
+    # Creative FX amounts (0..1). Library default is 0 (off); the CLI/app set tasteful defaults.
+    reverb: float = 0.0
+    delay: float = 0.0
+    drive: float = 0.0  # bus saturation / warmth
 
     def clamped(self) -> MixSettings:
         return MixSettings(
@@ -75,6 +131,9 @@ class MixSettings:
             reference=self.reference,
             track_overrides=dict(self.track_overrides),
             target_override=self.target_override,
+            reverb=_clamp01(self.reverb),
+            delay=_clamp01(self.delay),
+            drive=_clamp01(self.drive),
         )
 
     def override_for(self, name: str) -> TrackOverride:
@@ -114,6 +173,9 @@ class BusPlan:
     peak_ceiling_db: float = -1.0
     final_lufs: float = float("-inf")
     final_peak_dbfs: float = float("-inf")
+    reverb_amount: float = 0.0
+    delay_amount: float = 0.0
+    drive_amount: float = 0.0
 
 
 @dataclass
@@ -299,6 +361,51 @@ def _process_track(name: str, buf: AudioBuffer, plan: TrackPlan, s: MixSettings)
     return pan_to_stereo(work, plan.pan, plan.width)
 
 
+def _apply_creative_fx(bus, plans, processed, s, bus_plan, sample_rate: int, n: int) -> None:
+    """Build reverb/delay send buses from role-appropriate amounts and add the wet returns."""
+    if s.reverb <= 0.0 and s.delay <= 0.0:
+        return
+    rev_send = array("d", bytes(8 * n))
+    dly_send = array("d", bytes(8 * n))
+    have_rev = have_dly = False
+    for plan in plans:
+        if plan.muted or plan.features.silence:
+            continue
+        cls = plan.classification
+        mono = processed[plan.name].mono()
+        m = min(n, len(mono))
+        if s.reverb > 0.0:
+            amt = _send_amount(_REVERB_SENDS, cls.role, cls.subtype) * s.reverb
+            if amt > 0.0:
+                have_rev = True
+                for i in range(m):
+                    rev_send[i] += mono[i] * amt
+        if s.delay > 0.0:
+            amt = _send_amount(_DELAY_SENDS, cls.role, cls.subtype) * s.delay
+            if amt > 0.0:
+                have_dly = True
+                for i in range(m):
+                    dly_send[i] += mono[i] * amt
+
+    if s.reverb > 0.0 and have_rev:
+        wet = Reverb(
+            sample_rate, room_size=0.55 + 0.35 * s.reverb, damping=0.5, width=1.0
+        ).process_send(rev_send)
+        mix_into(bus, wet, gain=1.4)
+        bus_plan.reverb_amount = s.reverb
+
+    if s.delay > 0.0 and have_dly:
+        wet = StereoDelay(
+            sample_rate,
+            time_ms=350.0,
+            feedback=0.3 + 0.25 * s.delay,
+            damping=0.3,
+            ping_pong=True,
+        ).process_send(dly_send)
+        mix_into(bus, wet, gain=0.6)
+        bus_plan.delay_amount = s.delay
+
+
 def mix(stems: dict[str, AudioBuffer], settings: MixSettings) -> MixResult:
     if not stems:
         raise ValueError("no stems to mix")
@@ -376,6 +483,9 @@ def mix(stems: dict[str, AudioBuffer], settings: MixSettings) -> MixResult:
 
     bus_plan = BusPlan(target_lufs=target_lufs, peak_ceiling_db=ceiling)
 
+    # --- Creative FX send returns (reverb / delay) added into the bus ------
+    _apply_creative_fx(bus, plans, processed, s, bus_plan, sample_rate, max_frames)
+
     # --- Tonal correction (reference or genre curve) -----------------------
     current_balance = tonal_balance(bus)
     if s.reference is not None:
@@ -400,6 +510,11 @@ def mix(stems: dict[str, AudioBuffer], settings: MixSettings) -> MixResult:
     )
     bus_plan.glue = glue
     bus_plan.glue_gr_db = compress(bus, glue)
+
+    # --- Saturation / drive (warmth + harmonic glue) -----------------------
+    if s.drive > 0.0:
+        saturate(bus, drive=s.drive * 0.7, mix=0.85, bias=0.12)
+        bus_plan.drive_amount = s.drive
 
     # --- Normalize to target loudness --------------------------------------
     pre_lufs = integrated_lufs(bus)

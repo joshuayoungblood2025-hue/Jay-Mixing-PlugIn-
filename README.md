@@ -184,6 +184,22 @@ the offline engine because Logic exposes no session/mixer API).
 > `macos-latest` job actually builds the AU/VST3/Standalone and runs `auval` on every push
 > (`.github/workflows/build.yml`). The Python real-time core is fully tested here.
 
+## Creative FX (reverb / delay / saturation)
+
+Beyond the technical mix, the engine adds tasteful **creative processing** via role-aware
+send effects and bus drive:
+
+- **Reverb** — a Freeverb-style algorithm on a return bus (vocals get the most, drums a
+  short room, bass none).
+- **Delay** — a tempo-friendly stereo/ping-pong delay send (mostly vocals + lead).
+- **Saturation** — gentle tanh drive on the bus for warmth and glue.
+
+Controls (`0..1`) are on the CLI (`--reverb`, `--delay`, `--drive`), the web app sliders,
+and the mix config. They default to subtle amounts in the CLI/app and to `0` in the library
+API. These are solid algorithmic effects — musical and real, though not a clone of a
+boutique commercial reverb. They currently live in the engine/app; porting them into the
+C++ plugin is a follow-up.
+
 ## Architecture
 
 ```

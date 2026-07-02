@@ -123,6 +123,9 @@ def _cmd_mix(args: argparse.Namespace) -> int:
             target_lufs=args.target_lufs,
             peak_ceiling_db=args.peak,
             locked=frozenset(args.lock or []),
+            reverb=args.reverb,
+            delay=args.delay,
+            drive=args.drive,
         )
 
     # Merge per-track CLI flags on top of whatever came from config/defaults.
@@ -328,6 +331,9 @@ def build_parser() -> argparse.ArgumentParser:
     m.add_argument("--intensity", type=float, default=0.5, help="processing intensity 0..1")
     m.add_argument("--vocal", type=float, default=0.5, help="vocal prominence 0..1")
     m.add_argument("--tone", type=float, default=0.0, help="tone -1 (warm) .. +1 (clarity)")
+    m.add_argument("--reverb", type=float, default=0.25, help="creative reverb amount 0..1")
+    m.add_argument("--delay", type=float, default=0.12, help="creative delay amount 0..1")
+    m.add_argument("--drive", type=float, default=0.15, help="bus saturation/warmth 0..1")
     m.add_argument("--reference", help="reference WAV to match tonal balance to")
     m.add_argument("--target-lufs", type=float, default=None, help="override bus LUFS target")
     m.add_argument("--peak", type=float, default=None, help="override peak ceiling (dBFS)")

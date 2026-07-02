@@ -89,6 +89,9 @@ def settings_from_dict(data: dict) -> tuple[MixSettings, str | None]:
         peak_ceiling_db=data.get("peak_ceiling_db"),
         locked=locked,
         track_overrides=overrides,
+        reverb=float(data.get("reverb", 0.0)),
+        delay=float(data.get("delay", 0.0)),
+        drive=float(data.get("drive", 0.0)),
     )
     return settings, data.get("reference")
 
@@ -106,6 +109,9 @@ def settings_to_dict(settings: MixSettings, reference_path: str | None = None) -
         "tone": settings.tone,
         "target_lufs": settings.target_lufs,
         "peak_ceiling_db": settings.peak_ceiling_db,
+        "reverb": settings.reverb,
+        "delay": settings.delay,
+        "drive": settings.drive,
     }
     if reference_path:
         data["reference"] = reference_path

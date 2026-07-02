@@ -67,6 +67,11 @@ def build_report(
         "normalize_gain_db": round(bp.normalize_gain_db, 2),
         "glue_gr_db": round(bp.glue_gr_db, 2),
         "limiter_gr_db": round(bp.limiter_gr_db, 2),
+        "creative_fx": {
+            "reverb": round(bp.reverb_amount, 2),
+            "delay": round(bp.delay_amount, 2),
+            "drive": round(bp.drive_amount, 2),
+        },
         "tonal_correction_eq": [b.as_dict() for b in bp.tonal_eq],
     }
 
@@ -155,6 +160,11 @@ def render_text(
         for b in bp.tonal_eq:
             add(f"    - {b.describe()}")
     add(f"glue comp     : GR {bp.glue_gr_db:.1f} dB")
+    if bp.reverb_amount or bp.delay_amount or bp.drive_amount:
+        add(
+            f"creative fx   : reverb {bp.reverb_amount:.2f} | delay {bp.delay_amount:.2f} | "
+            f"drive {bp.drive_amount:.2f}"
+        )
     add(f"normalize     : {_fmt_db(bp.normalize_gain_db)} to hit {bp.target_lufs:.1f} LUFS")
     add(f"limiter       : ceiling {bp.peak_ceiling_db:.1f} dBFS (GR {bp.limiter_gr_db:.1f} dB)")
     add("")

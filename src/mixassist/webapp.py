@@ -116,6 +116,9 @@ def _run_mix(runs_root: Path, fields: dict, files: list[tuple[str, bytes]]) -> d
         intensity=fnum("intensity", 0.5),
         vocal_prominence=fnum("vocal", 0.5),
         tone=fnum("tone", 0.0),
+        reverb=fnum("reverb", 0.25),
+        delay=fnum("delay", 0.12),
+        drive=fnum("drive", 0.15),
     )
 
     stems = load_stems(str(stems_dir))
@@ -277,6 +280,15 @@ iframe{width:100%;height:640px;border:0;border-radius:12px;margin-top:16px;backg
   <label class="row"><span>Tone (warm &larr; 0 &rarr; clarity)</span><span class="val" id="tv">0.00</span></label>
   <input type="range" id="tone" name="tone" min="-1" max="1" step="0.05" value="0">
 
+  <label class="row"><span>Reverb (space)</span><span class="val" id="rv">0.25</span></label>
+  <input type="range" id="reverb" name="reverb" min="0" max="1" step="0.05" value="0.25">
+
+  <label class="row"><span>Delay</span><span class="val" id="dv">0.12</span></label>
+  <input type="range" id="delay" name="delay" min="0" max="1" step="0.05" value="0.12">
+
+  <label class="row"><span>Drive (warmth)</span><span class="val" id="gv">0.15</span></label>
+  <input type="range" id="drive" name="drive" min="0" max="1" step="0.05" value="0.15">
+
   <button id="go" type="submit">Mix</button>
   <div id="status"></div>
   <div id="links"></div>
@@ -295,6 +307,9 @@ function showFiles(){const n=inp.files.length;$('#files').textContent=n?[...inp.
 $('#intensity').oninput=e=>$('#iv').textContent=(+e.target.value).toFixed(2);
 $('#vocal').oninput=e=>$('#vv').textContent=(+e.target.value).toFixed(2);
 $('#tone').oninput=e=>$('#tv').textContent=(+e.target.value).toFixed(2);
+$('#reverb').oninput=e=>$('#rv').textContent=(+e.target.value).toFixed(2);
+$('#delay').oninput=e=>$('#dv').textContent=(+e.target.value).toFixed(2);
+$('#drive').oninput=e=>$('#gv').textContent=(+e.target.value).toFixed(2);
 $('#f').addEventListener('submit',async ev=>{
   ev.preventDefault();
   if(!inp.files.length){$('#status').textContent='Please choose some .wav stems first.';return;}
@@ -304,6 +319,9 @@ $('#f').addEventListener('submit',async ev=>{
   fd.append('intensity',$('#intensity').value);
   fd.append('vocal',$('#vocal').value);
   fd.append('tone',$('#tone').value);
+  fd.append('reverb',$('#reverb').value);
+  fd.append('delay',$('#delay').value);
+  fd.append('drive',$('#drive').value);
   $('#go').disabled=true;$('#links').innerHTML='';$('#dash').innerHTML='';
   $('#status').textContent='Mixing '+inp.files.length+' stems… (this can take a bit)';
   try{
