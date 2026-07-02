@@ -1,0 +1,66 @@
+name: build
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Python engine: tests, lint, types, and the C++/Python DSP parity check.
+  # ---------------------------------------------------------------------------
+  engine:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install package + dev tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+      - name: Ruff (lint + format check)
+        run: |
+          ruff check src tests
+          ruff format --check src tests
+      - name: Mypy
+        run: mypy src
+      - name: Pytest
+        run: pytest
+      - name: DSP parity (C++ port vs Python engine)
+        run: PYTHONPATH=src python plugin/tests/verify_dsp_parity.py
+
+  # ---------------------------------------------------------------------------
+  # The real thing: build the AU/VST3/Standalone on macOS and validate the AU.
+  # ---------------------------------------------------------------------------
+  plugin-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure (CMake + fetch JUCE)
+        working-directory: plugin
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DMIXASSIST_BUILD_TESTS=ON
+      - name: Build plugin (AU / VST3 / Standalone)
+        working-directory: plugin
+        run: cmake --build build --config Release
+      - name: DSP parity harness (native build)
+        working-directory: plugin
+        run: ./build/dsp_parity || ./build/Release/dsp_parity
+      - name: Validate the Audio Unit (auval)
+        run: |
+          # Give the freshly-copied component time to register, then validate.
+          killall -9 AudioComponentRegistrar || true
+          sleep 5
+          auval -a | grep -i "Mxas" || echo "not yet listed; validating by type/subtype"
+          auval -v aufx Mxa1 Mxas
+      - name: Upload built plugins
+        uses: actions/upload-artifact@v4
+        with:
+          name: mixassist-plugins-macos
+          path: |
+            plugin/build/**/*.component
+            plugin/build/**/*.vst3
+            plugin/build/**/*.app
+          if-no-files-found: warn

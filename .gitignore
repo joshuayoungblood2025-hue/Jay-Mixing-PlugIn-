@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.venv/
+venv/
+
+# Generated audio sessions / renders
+demo_session/
+*.wav
+!tests/**/*.wav
+
+# Phase 3 user data (regenerated via `learn` / `rate`)
+mix_prefs.json
+
+# Plugin build artifacts
+plugin/build/
+*.bin
