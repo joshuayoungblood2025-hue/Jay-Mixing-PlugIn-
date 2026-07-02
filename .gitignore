@@ -22,3 +22,6 @@ mix_prefs.json
 # Plugin build artifacts
 plugin/build/
 *.bin
+
+# Local web app run outputs
+mixassist_runs/

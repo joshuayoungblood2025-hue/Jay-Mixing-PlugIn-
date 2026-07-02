@@ -34,6 +34,11 @@ ignore = [
     "SIM108", # explicit if/else is clearer than ternaries in tight DSP loops
 ]
 
+[tool.ruff.lint.per-file-ignores]
+# The web app embeds an HTML/CSS/JS page as a string literal; those lines are not
+# meaningfully wrappable to 100 cols.
+"src/mixassist/webapp.py" = ["E501"]
+
 [tool.black]
 line-length = 100
 target-version = ["py310"]

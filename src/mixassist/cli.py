@@ -297,6 +297,13 @@ def _cmd_process(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_serve(args: argparse.Namespace) -> int:
+    from mixassist.webapp import serve
+
+    serve(host=args.host, port=args.port, open_browser=not args.no_open)
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="mixassist", description="AI Mixing Assistant")
     p.add_argument("--version", action="version", version=f"mixassist {__version__}")
@@ -390,6 +397,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     pc.add_argument("--float", action="store_true", help="write 32-bit float WAV")
     pc.set_defaults(func=_cmd_process)
+
+    sv = sub.add_parser("serve", help="launch the local browser app (drop stems, click Mix)")
+    sv.add_argument("--host", default="127.0.0.1", help="host to bind (default 127.0.0.1)")
+    sv.add_argument("--port", type=int, default=8765, help="port (default 8765)")
+    sv.add_argument("--no-open", action="store_true", help="do not auto-open the browser")
+    sv.set_defaults(func=_cmd_serve)
 
     return p
 
