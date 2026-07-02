@@ -5,11 +5,14 @@ from __future__ import annotations
 import math
 from array import array
 
-from tests.conftest import sine
-
 from mixassist.analysis.metrics import compute_master_metrics
 from mixassist.audio.buffer import AudioBuffer
 from mixassist.dsp.loudness import loudness_time_series
+
+
+def sine(freq: float, sr: int, seconds: float, amp: float = 0.5) -> array:
+    n = int(sr * seconds)
+    return array("d", [amp * math.sin(2 * math.pi * freq * i / sr) for i in range(n)])
 
 
 def test_correlation_identical_channels(sr):
