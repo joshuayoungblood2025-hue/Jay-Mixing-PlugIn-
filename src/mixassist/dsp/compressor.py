@@ -126,3 +126,62 @@ def limit(buf: AudioBuffer, ceiling_db: float = -1.0, release_ms: float = 50.0) 
         for c in range(nch):
             channels[c][i] *= env
     return max_gr_db
+
+
+def sidechain_duck(
+    target: AudioBuffer,
+    key_mono,
+    amount: float,
+    attack_ms: float = 4.0,
+    release_ms: float = 140.0,
+) -> float:
+    """Duck ``target`` by an external key signal (classic kick -> bass side-chain).
+
+    The key's normalized envelope drives gain reduction: when the key (kick) is loud the
+    target (bass) is pulled down, springing back on the release for a punchy, pumping feel.
+    ``amount`` 0..1 sets the maximum duck depth (1.0 = fully silenced on peaks). Returns the
+    maximum gain reduction applied, in dB.
+    """
+    amount = 0.0 if amount < 0.0 else 1.0 if amount > 1.0 else amount
+    n = min(target.num_frames, len(key_mono))
+    if n == 0 or amount <= 0.0:
+        return 0.0
+
+    key_peak = 0.0
+    for i in range(len(key_mono)):
+        a = key_mono[i]
+        if a < 0.0:
+            a = -a
+        if a > key_peak:
+            key_peak = a
+    if key_peak < 1e-6:
+        return 0.0
+
+    inv = 1.0 / key_peak
+    fs = target.sample_rate
+    atk = _coef(attack_ms, fs)
+    rel = _coef(release_ms, fs)
+    env = 0.0
+    max_gr_db = 0.0
+    channels = target.channels
+    nch = len(channels)
+
+    for i in range(n):
+        k = key_mono[i]
+        if k < 0.0:
+            k = -k
+        k *= inv
+        if k > env:
+            env = atk * env + (1.0 - atk) * k
+        else:
+            env = rel * env + (1.0 - rel) * k
+        g = 1.0 - amount * env
+        if g < 0.0:
+            g = 0.0
+        if g < 1.0:
+            gr = -20.0 * math.log10(g) if g > 1e-6 else 120.0
+            if gr > max_gr_db:
+                max_gr_db = gr
+        for c in range(nch):
+            channels[c][i] *= g
+    return max_gr_db

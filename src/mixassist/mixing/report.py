@@ -53,6 +53,7 @@ def build_report(
                 "eq": [b.as_dict() for b in p.eq_bands],
                 "compression": p.comp.as_dict() if p.comp else None,
                 "compression_gr_db": round(p.comp_gr_db, 2),
+                "sidechain_gr_db": round(p.sidechain_gr_db, 2),
             }
         )
 
@@ -149,6 +150,8 @@ def render_text(
                 f"atk {p.comp.attack_ms:.0f}ms, rel {p.comp.release_ms:.0f}ms "
                 f"(GR {p.comp_gr_db:.1f} dB) — {p.comp.reason}"
             )
+        if p.sidechain_gr_db > 0.0:
+            add(f"    sidechain: ducked up to {p.sidechain_gr_db:.1f} dB by the kick")
         add("")
 
     add("-" * 72)

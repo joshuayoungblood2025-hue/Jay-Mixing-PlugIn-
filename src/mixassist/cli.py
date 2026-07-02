@@ -126,6 +126,7 @@ def _cmd_mix(args: argparse.Namespace) -> int:
             reverb=args.reverb,
             delay=args.delay,
             drive=args.drive,
+            sidechain=args.sidechain,
         )
 
     # Merge per-track CLI flags on top of whatever came from config/defaults.
@@ -352,6 +353,9 @@ def build_parser() -> argparse.ArgumentParser:
     m.add_argument("--reverb", type=float, default=0.25, help="creative reverb amount 0..1")
     m.add_argument("--delay", type=float, default=0.12, help="creative delay amount 0..1")
     m.add_argument("--drive", type=float, default=0.15, help="bus saturation/warmth 0..1")
+    m.add_argument(
+        "--sidechain", type=float, default=0.0, help="kick->bass ducking depth 0..1 (0 = off)"
+    )
     m.add_argument("--reference", help="reference WAV to match tonal balance to")
     m.add_argument("--target-lufs", type=float, default=None, help="override bus LUFS target")
     m.add_argument("--peak", type=float, default=None, help="override peak ceiling (dBFS)")

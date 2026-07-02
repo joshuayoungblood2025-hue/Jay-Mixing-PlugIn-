@@ -119,6 +119,7 @@ def _run_mix(runs_root: Path, fields: dict, files: list[tuple[str, bytes]]) -> d
         reverb=fnum("reverb", 0.25),
         delay=fnum("delay", 0.12),
         drive=fnum("drive", 0.15),
+        sidechain=fnum("sidechain", 0.0),
     )
 
     stems = load_stems(str(stems_dir))
@@ -289,6 +290,9 @@ iframe{width:100%;height:640px;border:0;border-radius:12px;margin-top:16px;backg
   <label class="row"><span>Drive (warmth)</span><span class="val" id="gv">0.15</span></label>
   <input type="range" id="drive" name="drive" min="0" max="1" step="0.05" value="0.15">
 
+  <label class="row"><span>Kick &rarr; Bass ducking</span><span class="val" id="sv">0.00</span></label>
+  <input type="range" id="sidechain" name="sidechain" min="0" max="1" step="0.05" value="0">
+
   <button id="go" type="submit">Mix</button>
   <div id="status"></div>
   <div id="links"></div>
@@ -310,6 +314,7 @@ $('#tone').oninput=e=>$('#tv').textContent=(+e.target.value).toFixed(2);
 $('#reverb').oninput=e=>$('#rv').textContent=(+e.target.value).toFixed(2);
 $('#delay').oninput=e=>$('#dv').textContent=(+e.target.value).toFixed(2);
 $('#drive').oninput=e=>$('#gv').textContent=(+e.target.value).toFixed(2);
+$('#sidechain').oninput=e=>$('#sv').textContent=(+e.target.value).toFixed(2);
 $('#f').addEventListener('submit',async ev=>{
   ev.preventDefault();
   if(!inp.files.length){$('#status').textContent='Please choose some .wav stems first.';return;}
@@ -322,6 +327,7 @@ $('#f').addEventListener('submit',async ev=>{
   fd.append('reverb',$('#reverb').value);
   fd.append('delay',$('#delay').value);
   fd.append('drive',$('#drive').value);
+  fd.append('sidechain',$('#sidechain').value);
   $('#go').disabled=true;$('#links').innerHTML='';$('#dash').innerHTML='';
   $('#status').textContent='Mixing '+inp.files.length+' stems… (this can take a bit)';
   try{

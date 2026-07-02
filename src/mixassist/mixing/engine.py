@@ -28,7 +28,8 @@ from mixassist.analysis.classify import (
 from mixassist.analysis.features import Features, extract_features
 from mixassist.analysis.spectrum import tonal_balance
 from mixassist.audio.buffer import AudioBuffer
-from mixassist.dsp.compressor import CompressorSettings, compress, limit
+from mixassist.dsp.biquad import low_pass
+from mixassist.dsp.compressor import CompressorSettings, compress, limit, sidechain_duck
 from mixassist.dsp.delay import StereoDelay
 from mixassist.dsp.eq import EQBand, apply_eq
 from mixassist.dsp.gain import db_to_lin, mix_into, pan_to_stereo
@@ -118,6 +119,7 @@ class MixSettings:
     reverb: float = 0.0
     delay: float = 0.0
     drive: float = 0.0  # bus saturation / warmth
+    sidechain: float = 0.0  # kick -> bass ducking depth (0..1)
 
     def clamped(self) -> MixSettings:
         return MixSettings(
@@ -134,6 +136,7 @@ class MixSettings:
             reverb=_clamp01(self.reverb),
             delay=_clamp01(self.delay),
             drive=_clamp01(self.drive),
+            sidechain=_clamp01(self.sidechain),
         )
 
     def override_for(self, name: str) -> TrackOverride:
@@ -158,6 +161,7 @@ class TrackPlan:
     eq_bands: list[EQBand] = field(default_factory=list)
     comp: CompressorSettings | None = None
     comp_gr_db: float = 0.0
+    sidechain_gr_db: float = 0.0
     in_lufs: float = float("-inf")
     out_lufs: float = float("-inf")
 
@@ -406,6 +410,40 @@ def _apply_creative_fx(bus, plans, processed, s, bus_plan, sample_rate: int, n: 
         bus_plan.delay_amount = s.delay
 
 
+def _apply_sidechain(plans, processed, s) -> None:
+    """Duck bass tracks with a kick/drum key (classic kick -> bass side-chain)."""
+    if s.sidechain <= 0.0:
+        return
+    drums = [
+        p
+        for p in plans
+        if p.classification.role == DRUMS and not p.muted and not p.features.silence
+    ]
+    basses = [
+        p for p in plans if p.classification.role == BASS and not p.muted and not p.features.silence
+    ]
+    if not drums or not basses:
+        return
+
+    # Prefer an isolated kick as the trigger; otherwise use the whole drum bus low-passed
+    # to the thump region so hats/snares don't pump the bass.
+    kicks = [p for p in drums if p.classification.subtype == "kick"]
+    key_src = kicks if kicks else drums
+    fs = processed[key_src[0].name].sample_rate
+    n = max(processed[p.name].num_frames for p in key_src)
+    key = array("d", bytes(8 * n))
+    for p in key_src:
+        mono = processed[p.name].mono()
+        m = min(n, len(mono))
+        for i in range(m):
+            key[i] += mono[i]
+    if not kicks:
+        low_pass(fs, 120.0).process_inplace(key)
+
+    for b in basses:
+        b.sidechain_gr_db = sidechain_duck(processed[b.name], key, amount=s.sidechain)
+
+
 def mix(stems: dict[str, AudioBuffer], settings: MixSettings) -> MixResult:
     if not stems:
         raise ValueError("no stems to mix")
@@ -473,6 +511,9 @@ def mix(stems: dict[str, AudioBuffer], settings: MixSettings) -> MixResult:
             if abs(delta) > 0.01:
                 processed[plan.name].apply_gain(db_to_lin(delta))
             plan.gain_db = corrected
+
+    # --- Kick -> bass side-chain ducking (before summing) ------------------
+    _apply_sidechain(plans, processed, s)
 
     # --- Sum the bus (muted / solo-excluded tracks are rendered but not summed) ---
     bus = AudioBuffer.silence(max_frames, sample_rate, 2)

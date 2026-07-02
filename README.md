@@ -211,6 +211,9 @@ send effects and bus drive:
   short room, bass none).
 - **Delay** — a tempo-friendly stereo/ping-pong delay send (mostly vocals + lead).
 - **Saturation** — gentle tanh drive on the bus for warmth and glue.
+- **Kick → Bass side-chain** — `--sidechain 0..1` ducks the bass whenever the kick hits, so
+  the low end stays clean and the kick punches through (best paired with an isolated kick
+  from `separate`).
 
 Controls (`0..1`) are on the CLI (`--reverb`, `--delay`, `--drive`), the web app sliders,
 and the mix config. They default to subtle amounts in the CLI/app and to `0` in the library
