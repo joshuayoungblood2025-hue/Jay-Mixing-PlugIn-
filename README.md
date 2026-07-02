@@ -184,6 +184,24 @@ the offline engine because Logic exposes no session/mixer API).
 > `macos-latest` job actually builds the AU/VST3/Standalone and runs `auval` on every push
 > (`.github/workflows/build.yml`). The Python real-time core is fully tested here.
 
+## Drum separation (Demucs / DrumSep)
+
+`mixassist separate` splits a drum loop (or full song) into per-instrument stems using an
+external neural model, then drops them into a folder ready for `mixassist mix` / the app:
+
+```bash
+# full-song split (drums/bass/vocals/other) — needs `pip install demucs`
+mixassist separate song.wav --out ./separated
+
+# drum-piece split (kick/snare/cymbals/toms) — needs the DrumSep model via --repo/--model
+mixassist separate drumloop.wav --repo ./drumsep_model --model modelo_final --out ./separated
+```
+
+It shells out to Demucs (which must be installed on the machine — it pulls in PyTorch) and
+renames the outputs (the DrumSep labels are Spanish: bombo→Kick, redoblante→Snare,
+platillos→Cymbals, toms→Toms). No model ships with this repo; professional separation is a
+trained neural network, so it runs on your machine, not in this package.
+
 ## Creative FX (reverb / delay / saturation)
 
 Beyond the technical mix, the engine adds tasteful **creative processing** via role-aware

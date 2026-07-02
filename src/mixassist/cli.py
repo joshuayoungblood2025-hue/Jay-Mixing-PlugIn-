@@ -307,6 +307,24 @@ def _cmd_serve(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_separate(args: argparse.Namespace) -> int:
+    from mixassist.separate import separate
+
+    print(f"Separating {args.input} with Demucs (device={args.device}) ...")
+    if args.repo or args.model:
+        print(f"  model: {args.model or '(default)'}  repo: {args.repo or '(none)'}")
+    print("  (this can take a while on CPU — that is normal)")
+    res = separate(args.input, args.out, model=args.model, repo=args.repo, device=args.device)
+    if not res["ok"]:
+        print("error: " + res["error"], file=sys.stderr)
+        return 1
+    print(f"\nSeparated into {len(res['stems'])} stems in {res['stems_dir']}:")
+    for s in res["stems"]:
+        print(f"  - {s}.wav")
+    print(f"\nNow mix them:\n  mixassist mix {res['stems_dir']} --genre pop --out ./mixed")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="mixassist", description="AI Mixing Assistant")
     p.add_argument("--version", action="version", version=f"mixassist {__version__}")
@@ -409,6 +427,18 @@ def build_parser() -> argparse.ArgumentParser:
     sv.add_argument("--port", type=int, default=8765, help="port (default 8765)")
     sv.add_argument("--no-open", action="store_true", help="do not auto-open the browser")
     sv.set_defaults(func=_cmd_serve)
+
+    sep = sub.add_parser(
+        "separate", help="split a drum loop (or song) into stems via Demucs/DrumSep"
+    )
+    sep.add_argument("input", help="input audio file (drum loop or song)")
+    sep.add_argument("--out", default="./separated", help="output directory")
+    sep.add_argument("--model", help="Demucs model name (e.g. the DrumSep model)")
+    sep.add_argument("--repo", help="folder containing the DrumSep model files")
+    sep.add_argument(
+        "--device", default="cpu", choices=["cpu", "cuda", "mps"], help="compute device"
+    )
+    sep.set_defaults(func=_cmd_separate)
 
     return p
 
