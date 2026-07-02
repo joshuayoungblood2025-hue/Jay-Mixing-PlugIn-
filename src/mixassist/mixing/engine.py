@@ -28,12 +28,12 @@ from mixassist.analysis.classify import (
 from mixassist.analysis.features import Features, extract_features
 from mixassist.analysis.spectrum import tonal_balance
 from mixassist.audio.buffer import AudioBuffer
-from mixassist.dsp.biquad import low_pass
 from mixassist.dsp.compressor import CompressorSettings, compress, limit, sidechain_duck
 from mixassist.dsp.delay import StereoDelay
 from mixassist.dsp.eq import EQBand, apply_eq
 from mixassist.dsp.gain import db_to_lin, mix_into, pan_to_stereo
 from mixassist.dsp.loudness import integrated_lufs, peak_dbfs
+from mixassist.dsp.onset import build_trigger, detect_kick_onsets
 from mixassist.dsp.reverb import Reverb
 from mixassist.dsp.saturation import saturate
 from mixassist.mixing import reference as refmod
@@ -180,6 +180,7 @@ class BusPlan:
     reverb_amount: float = 0.0
     delay_amount: float = 0.0
     drive_amount: float = 0.0
+    sidechain_kick_hits: int = 0
 
 
 @dataclass
@@ -410,10 +411,15 @@ def _apply_creative_fx(bus, plans, processed, s, bus_plan, sample_rate: int, n: 
         bus_plan.delay_amount = s.delay
 
 
-def _apply_sidechain(plans, processed, s) -> None:
-    """Duck bass tracks with a kick/drum key (classic kick -> bass side-chain)."""
+def _apply_sidechain(plans, processed, s) -> int:
+    """Duck bass tracks using a clean trigger detected from the kick. Returns hit count.
+
+    We don't rely on separation: we detect *when* the kick hits (low-frequency transients)
+    and synthesize a clean exponential-decay trigger at those moments — an artifact-free
+    side-chain key, even from a full drum loop.
+    """
     if s.sidechain <= 0.0:
-        return
+        return 0
     drums = [
         p
         for p in plans
@@ -423,25 +429,27 @@ def _apply_sidechain(plans, processed, s) -> None:
         p for p in plans if p.classification.role == BASS and not p.muted and not p.features.silence
     ]
     if not drums or not basses:
-        return
+        return 0
 
-    # Prefer an isolated kick as the trigger; otherwise use the whole drum bus low-passed
-    # to the thump region so hats/snares don't pump the bass.
+    # Prefer an isolated kick as the detection source; else use the whole drum bus.
     kicks = [p for p in drums if p.classification.subtype == "kick"]
     key_src = kicks if kicks else drums
     fs = processed[key_src[0].name].sample_rate
     n = max(processed[p.name].num_frames for p in key_src)
-    key = array("d", bytes(8 * n))
+    raw = array("d", bytes(8 * n))
     for p in key_src:
         mono = processed[p.name].mono()
         m = min(n, len(mono))
         for i in range(m):
-            key[i] += mono[i]
-    if not kicks:
-        low_pass(fs, 120.0).process_inplace(key)
+            raw[i] += mono[i]
 
+    hits = detect_kick_onsets(raw, fs)
+    if not hits:
+        return 0
+    key = build_trigger(hits, n, fs)
     for b in basses:
         b.sidechain_gr_db = sidechain_duck(processed[b.name], key, amount=s.sidechain)
+    return len(hits)
 
 
 def mix(stems: dict[str, AudioBuffer], settings: MixSettings) -> MixResult:
@@ -513,7 +521,7 @@ def mix(stems: dict[str, AudioBuffer], settings: MixSettings) -> MixResult:
             plan.gain_db = corrected
 
     # --- Kick -> bass side-chain ducking (before summing) ------------------
-    _apply_sidechain(plans, processed, s)
+    sidechain_hits = _apply_sidechain(plans, processed, s)
 
     # --- Sum the bus (muted / solo-excluded tracks are rendered but not summed) ---
     bus = AudioBuffer.silence(max_frames, sample_rate, 2)
@@ -523,6 +531,7 @@ def mix(stems: dict[str, AudioBuffer], settings: MixSettings) -> MixResult:
         mix_into(bus, processed[plan.name], gain=1.0)
 
     bus_plan = BusPlan(target_lufs=target_lufs, peak_ceiling_db=ceiling)
+    bus_plan.sidechain_kick_hits = sidechain_hits
 
     # --- Creative FX send returns (reverb / delay) added into the bus ------
     _apply_creative_fx(bus, plans, processed, s, bus_plan, sample_rate, max_frames)

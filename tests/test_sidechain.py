@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import math
+import random
 from array import array
 
 from mixassist.audio.buffer import AudioBuffer
 from mixassist.dsp.compressor import sidechain_duck
+from mixassist.dsp.onset import build_trigger, detect_kick_onsets
 from mixassist.mixing.engine import MixSettings, mix
 
 
@@ -59,3 +61,37 @@ def test_engine_no_sidechain_by_default(synth_stems):
     res = mix(synth_stems, MixSettings(genre="hiphop"))
     for p in res.track_plans:
         assert p.sidechain_gr_db == 0.0
+
+
+def test_detect_kick_onsets_finds_kicks_ignores_hats():
+    sr = 44100
+    n = 2 * sr
+    loop = array("d", bytes(8 * n))
+    rng = random.Random(1)
+    for start in (0, sr // 2, sr, 3 * sr // 2):  # kicks at 0/0.5/1.0/1.5 s
+        for j in range(6000):
+            if start + j < n:
+                loop[start + j] += 0.9 * math.sin(2 * math.pi * 55 * j / sr) * math.exp(-j / 2500)
+    for start in range(0, n, sr // 8):  # hats every 1/8 s (should be ignored)
+        for j in range(800):
+            if start + j < n:
+                loop[start + j] += (rng.random() * 2 - 1) * 0.3 * math.exp(-j / 300)
+
+    hits = detect_kick_onsets(loop, sr)
+    assert len(hits) == 4
+    times = [h / sr for h in hits]
+    for expected in (0.0, 0.5, 1.0, 1.5):
+        assert any(abs(t - expected) < 0.03 for t in times)
+
+
+def test_build_trigger_pulses_at_hits():
+    sr = 44100
+    n = sr
+    key = build_trigger([0, sr // 2], n, sr)
+    assert key[0] == 1.0
+    assert key[sr // 2] == 1.0
+    assert max(key) <= 1.0
+
+
+def test_detect_onsets_empty_is_safe():
+    assert detect_kick_onsets(array("d", []), 44100) == []
