@@ -155,27 +155,39 @@ def render_text(
         add("")
 
     add("-" * 72)
-    add("  MASTER BUS")
+    add("  MASTER BUS" if s.master else "  MIX BUS  (no mastering)")
     add("-" * 72)
     if bp.tonal_eq:
         label = "reference match" if s.reference is not None else "genre tonal target"
         add(f"tonal correction ({label}):")
         for b in bp.tonal_eq:
             add(f"    - {b.describe()}")
-    add(f"glue comp     : GR {bp.glue_gr_db:.1f} dB")
     if bp.reverb_amount or bp.delay_amount or bp.drive_amount:
         add(
             f"creative fx   : reverb {bp.reverb_amount:.2f} | delay {bp.delay_amount:.2f} | "
             f"drive {bp.drive_amount:.2f}"
         )
-    add(f"normalize     : {_fmt_db(bp.normalize_gain_db)} to hit {bp.target_lufs:.1f} LUFS")
-    add(f"limiter       : ceiling {bp.peak_ceiling_db:.1f} dBFS (GR {bp.limiter_gr_db:.1f} dB)")
-    add("")
-    add(
-        f"FINAL         : {_fmt_lufs(bp.final_lufs)} integrated, peak {_fmt_db(bp.final_peak_dbfs)}"
-    )
-    headroom = bp.peak_ceiling_db - bp.final_peak_dbfs if math.isfinite(bp.final_peak_dbfs) else 0.0
-    add(f"                {abs(headroom):.1f} dB from ceiling — ready for mastering")
+    if s.master:
+        add(f"glue comp     : GR {bp.glue_gr_db:.1f} dB")
+        add(f"normalize     : {_fmt_db(bp.normalize_gain_db)} to hit {bp.target_lufs:.1f} LUFS")
+        add(f"limiter       : ceiling {bp.peak_ceiling_db:.1f} dBFS (GR {bp.limiter_gr_db:.1f} dB)")
+        add("")
+        add(
+            f"FINAL         : {_fmt_lufs(bp.final_lufs)} integrated, "
+            f"peak {_fmt_db(bp.final_peak_dbfs)}"
+        )
+        headroom = (
+            bp.peak_ceiling_db - bp.final_peak_dbfs if math.isfinite(bp.final_peak_dbfs) else 0.0
+        )
+        add(f"                {abs(headroom):.1f} dB from ceiling — ready for mastering")
+    else:
+        add("mastering     : skipped (balance / gain-stage / EQ / compress / pan only)")
+        add(f"headroom trim : {_fmt_db(bp.normalize_gain_db)} (peak set to ~ -6 dBFS)")
+        add("")
+        add(
+            f"FINAL         : peak {_fmt_db(bp.final_peak_dbfs)} — balanced mix, "
+            "master & add FX in your DAW"
+        )
     add("=" * 72)
 
     if metrics is not None:

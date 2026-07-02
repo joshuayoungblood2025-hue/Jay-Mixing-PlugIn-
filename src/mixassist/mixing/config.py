@@ -93,6 +93,7 @@ def settings_from_dict(data: dict) -> tuple[MixSettings, str | None]:
         delay=float(data.get("delay", 0.0)),
         drive=float(data.get("drive", 0.0)),
         sidechain=float(data.get("sidechain", 0.0)),
+        master=bool(data.get("master", True)),
     )
     return settings, data.get("reference")
 
@@ -114,6 +115,7 @@ def settings_to_dict(settings: MixSettings, reference_path: str | None = None) -
         "delay": settings.delay,
         "drive": settings.drive,
         "sidechain": settings.sidechain,
+        "master": settings.master,
     }
     if reference_path:
         data["reference"] = reference_path

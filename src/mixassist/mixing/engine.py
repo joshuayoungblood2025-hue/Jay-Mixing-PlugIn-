@@ -31,7 +31,7 @@ from mixassist.audio.buffer import AudioBuffer
 from mixassist.dsp.compressor import CompressorSettings, compress, limit, sidechain_duck
 from mixassist.dsp.delay import StereoDelay
 from mixassist.dsp.eq import EQBand, apply_eq
-from mixassist.dsp.gain import db_to_lin, mix_into, pan_to_stereo
+from mixassist.dsp.gain import db_to_lin, lin_to_db, mix_into, pan_to_stereo
 from mixassist.dsp.loudness import integrated_lufs, peak_dbfs
 from mixassist.dsp.onset import build_trigger, detect_kick_onsets
 from mixassist.dsp.reverb import Reverb
@@ -120,6 +120,7 @@ class MixSettings:
     delay: float = 0.0
     drive: float = 0.0  # bus saturation / warmth
     sidechain: float = 0.0  # kick -> bass ducking depth (0..1)
+    master: bool = True  # apply mastering (bus EQ match, glue, loudness, limiter)
 
     def clamped(self) -> MixSettings:
         return MixSettings(
@@ -137,10 +138,31 @@ class MixSettings:
             delay=_clamp01(self.delay),
             drive=_clamp01(self.drive),
             sidechain=_clamp01(self.sidechain),
+            master=self.master,
         )
 
     def override_for(self, name: str) -> TrackOverride:
         return self.track_overrides.get(name, TrackOverride())
+
+    @classmethod
+    def auto(cls, genre: str = "pop", **overrides) -> MixSettings:
+        """Build a hands-off, genre-appropriate settings preset (the 'Auto Mix')."""
+        from mixassist.mixing.targets import auto_controls
+
+        c = auto_controls(genre)
+        base = cls(
+            genre=genre,
+            intensity=c["intensity"],
+            vocal_prominence=c["vocal"],
+            tone=c["tone"],
+            reverb=c["reverb"],
+            delay=c["delay"],
+            drive=c["drive"],
+            sidechain=c["sidechain"],
+        )
+        for k, v in overrides.items():
+            setattr(base, k, v)
+        return base
 
     @property
     def solo_active(self) -> bool:
@@ -536,45 +558,55 @@ def mix(stems: dict[str, AudioBuffer], settings: MixSettings) -> MixResult:
     # --- Creative FX send returns (reverb / delay) added into the bus ------
     _apply_creative_fx(bus, plans, processed, s, bus_plan, sample_rate, max_frames)
 
-    # --- Tonal correction (reference or genre curve) -----------------------
-    current_balance = tonal_balance(bus)
-    if s.reference is not None:
-        target_shape = refmod.reference_shape(s.reference)  # type: ignore[arg-type]
-        bus_plan.tonal_eq = refmod.build_corrective_eq(
-            current_balance, target_shape, max_db=4.0, strength=0.7
-        )
-    else:
-        bus_plan.tonal_eq = refmod.build_corrective_eq(
-            current_balance, target.curve_list(), max_db=2.5, strength=0.5
-        )
-    apply_eq(bus, bus_plan.tonal_eq)
-
-    # --- Glue compression --------------------------------------------------
-    glue = CompressorSettings(
-        threshold_db=-18.0,
-        ratio=1.5 + 0.8 * s.intensity,
-        attack_ms=30.0,
-        release_ms=200.0,
-        knee_db=6.0,
-        reason="bus glue: cohere the mix",
-    )
-    bus_plan.glue = glue
-    bus_plan.glue_gr_db = compress(bus, glue)
-
-    # --- Saturation / drive (warmth + harmonic glue) -----------------------
+    # --- Saturation / drive (creative warmth; gated by amount) -------------
     if s.drive > 0.0:
         saturate(bus, drive=s.drive * 0.7, mix=0.85, bias=0.12)
         bus_plan.drive_amount = s.drive
 
-    # --- Normalize to target loudness --------------------------------------
-    pre_lufs = integrated_lufs(bus)
-    if pre_lufs != float("-inf"):
-        norm_gain = target_lufs - pre_lufs
-        bus_plan.normalize_gain_db = norm_gain
-        bus.apply_gain(db_to_lin(norm_gain))
+    if s.master:
+        # --- Tonal correction (reference or genre curve) ------------------
+        current_balance = tonal_balance(bus)
+        if s.reference is not None:
+            target_shape = refmod.reference_shape(s.reference)  # type: ignore[arg-type]
+            bus_plan.tonal_eq = refmod.build_corrective_eq(
+                current_balance, target_shape, max_db=4.0, strength=0.7
+            )
+        else:
+            bus_plan.tonal_eq = refmod.build_corrective_eq(
+                current_balance, target.curve_list(), max_db=2.5, strength=0.5
+            )
+        apply_eq(bus, bus_plan.tonal_eq)
 
-    # --- Safety limiter ----------------------------------------------------
-    bus_plan.limiter_gr_db = limit(bus, ceiling_db=ceiling, release_ms=50.0)
+        # --- Glue compression --------------------------------------------
+        glue = CompressorSettings(
+            threshold_db=-18.0,
+            ratio=1.5 + 0.8 * s.intensity,
+            attack_ms=30.0,
+            release_ms=200.0,
+            knee_db=6.0,
+            reason="bus glue: cohere the mix",
+        )
+        bus_plan.glue = glue
+        bus_plan.glue_gr_db = compress(bus, glue)
+
+        # --- Normalize to target loudness --------------------------------
+        pre_lufs = integrated_lufs(bus)
+        if pre_lufs != float("-inf"):
+            norm_gain = target_lufs - pre_lufs
+            bus_plan.normalize_gain_db = norm_gain
+            bus.apply_gain(db_to_lin(norm_gain))
+
+        # --- Safety limiter ----------------------------------------------
+        bus_plan.limiter_gr_db = limit(bus, ceiling_db=ceiling, release_ms=50.0)
+    else:
+        # Mix-prep mode: NO mastering (no bus EQ match, glue, loudness maximizing or
+        # limiting). Just leave ~6 dB of headroom for mastering in a DAW, preserving the
+        # balance with a single peak scale.
+        peak = bus.peak()
+        if peak > 0.0:
+            g = db_to_lin(-6.0) / peak
+            bus_plan.normalize_gain_db = lin_to_db(g)
+            bus.apply_gain(g)
 
     bus_plan.final_lufs = integrated_lufs(bus)
     bus_plan.final_peak_dbfs = peak_dbfs(bus)

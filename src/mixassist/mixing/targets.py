@@ -134,3 +134,87 @@ def available_genres() -> list[str]:
 
 def get_target(genre: str) -> GenreTarget:
     return _GENRES.get(genre.lower(), _GENRES["default"])
+
+
+# Genre-aware "Auto Mix" control values, so a one-click mix needs no slider tweaking.
+# Keys map to MixSettings fields: intensity, vocal_prominence, tone, reverb, delay, drive,
+# sidechain (all 0..1 except tone which is -1..1).
+_AUTO_CONTROLS: dict[str, dict[str, float]] = {
+    "pop": {
+        "intensity": 0.6,
+        "vocal": 0.7,
+        "tone": 0.2,
+        "reverb": 0.25,
+        "delay": 0.12,
+        "drive": 0.15,
+        "sidechain": 0.2,
+    },
+    "rock": {
+        "intensity": 0.65,
+        "vocal": 0.6,
+        "tone": 0.15,
+        "reverb": 0.2,
+        "delay": 0.08,
+        "drive": 0.25,
+        "sidechain": 0.1,
+    },
+    "hiphop": {
+        "intensity": 0.6,
+        "vocal": 0.65,
+        "tone": 0.1,
+        "reverb": 0.18,
+        "delay": 0.1,
+        "drive": 0.2,
+        "sidechain": 0.45,
+    },
+    "rnb": {
+        "intensity": 0.5,
+        "vocal": 0.7,
+        "tone": -0.05,
+        "reverb": 0.3,
+        "delay": 0.15,
+        "drive": 0.12,
+        "sidechain": 0.15,
+    },
+    "edm": {
+        "intensity": 0.75,
+        "vocal": 0.5,
+        "tone": 0.3,
+        "reverb": 0.25,
+        "delay": 0.18,
+        "drive": 0.25,
+        "sidechain": 0.5,
+    },
+    "film": {
+        "intensity": 0.4,
+        "vocal": 0.55,
+        "tone": 0.0,
+        "reverb": 0.4,
+        "delay": 0.1,
+        "drive": 0.05,
+        "sidechain": 0.0,
+    },
+    "acoustic": {
+        "intensity": 0.4,
+        "vocal": 0.6,
+        "tone": 0.05,
+        "reverb": 0.3,
+        "delay": 0.1,
+        "drive": 0.05,
+        "sidechain": 0.0,
+    },
+    "default": {
+        "intensity": 0.55,
+        "vocal": 0.55,
+        "tone": 0.1,
+        "reverb": 0.22,
+        "delay": 0.1,
+        "drive": 0.15,
+        "sidechain": 0.15,
+    },
+}
+
+
+def auto_controls(genre: str) -> dict[str, float]:
+    """Tasteful, genre-appropriate control values for a hands-off 'Auto Mix'."""
+    return dict(_AUTO_CONTROLS.get(genre.lower(), _AUTO_CONTROLS["default"]))

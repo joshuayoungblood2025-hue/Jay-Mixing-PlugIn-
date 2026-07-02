@@ -111,16 +111,20 @@ def _run_mix(runs_root: Path, fields: dict, files: list[tuple[str, bytes]]) -> d
         except (TypeError, ValueError):
             return default
 
-    settings = MixSettings(
-        genre=fields.get("genre", "pop"),
-        intensity=fnum("intensity", 0.5),
-        vocal_prominence=fnum("vocal", 0.5),
-        tone=fnum("tone", 0.0),
-        reverb=fnum("reverb", 0.25),
-        delay=fnum("delay", 0.12),
-        drive=fnum("drive", 0.15),
-        sidechain=fnum("sidechain", 0.0),
-    )
+    genre = fields.get("genre", "pop")
+    if fields.get("auto") == "1":
+        # hands-off: genre-appropriate balance/EQ/comp, no creative FX, no mastering
+        settings = MixSettings.auto(
+            genre, reverb=0.0, delay=0.0, drive=0.0, sidechain=0.0, master=False
+        )
+    else:
+        settings = MixSettings(
+            genre=genre,
+            intensity=fnum("intensity", 0.5),
+            vocal_prominence=fnum("vocal", 0.5),
+            tone=fnum("tone", 0.0),
+            master=False,
+        )
 
     stems = load_stems(str(stems_dir))
     result = mix(stems, settings)
@@ -260,7 +264,7 @@ iframe{width:100%;height:640px;border:0;border-radius:12px;margin-top:16px;backg
 .hint{color:#64748b;font-size:12px;margin-top:8px}
 </style></head><body><div class="wrap">
 <h1>AI Mixing Assistant <span class="tag">local app</span></h1>
-<p class="sub">Drop your stem WAVs, choose a style, and mix. Everything runs on your Mac.</p>
+<p class="sub">Drop your stems and Auto Mix. It balances, gain-stages, pans, EQs and compresses — then you master &amp; add reverb/FX in your DAW.</p>
 
 <form id="f" class="card">
   <div id="drop">Drag &amp; drop your stem .wav files here, or click to choose
@@ -272,6 +276,7 @@ iframe{width:100%;height:640px;border:0;border-radius:12px;margin-top:16px;backg
   <label for="genre">Genre</label>
   <select id="genre" name="genre">__GENRES__</select>
 
+  <details class="adv"><summary>Fine-tune (optional — skip this and just hit Auto Mix)</summary>
   <label class="row"><span>Intensity (subtle &rarr; aggressive)</span><span class="val" id="iv">0.50</span></label>
   <input type="range" id="intensity" name="intensity" min="0" max="1" step="0.05" value="0.5">
 
@@ -280,20 +285,10 @@ iframe{width:100%;height:640px;border:0;border-radius:12px;margin-top:16px;backg
 
   <label class="row"><span>Tone (warm &larr; 0 &rarr; clarity)</span><span class="val" id="tv">0.00</span></label>
   <input type="range" id="tone" name="tone" min="-1" max="1" step="0.05" value="0">
+  </details>
 
-  <label class="row"><span>Reverb (space)</span><span class="val" id="rv">0.25</span></label>
-  <input type="range" id="reverb" name="reverb" min="0" max="1" step="0.05" value="0.25">
-
-  <label class="row"><span>Delay</span><span class="val" id="dv">0.12</span></label>
-  <input type="range" id="delay" name="delay" min="0" max="1" step="0.05" value="0.12">
-
-  <label class="row"><span>Drive (warmth)</span><span class="val" id="gv">0.15</span></label>
-  <input type="range" id="drive" name="drive" min="0" max="1" step="0.05" value="0.15">
-
-  <label class="row"><span>Kick &rarr; Bass ducking</span><span class="val" id="sv">0.00</span></label>
-  <input type="range" id="sidechain" name="sidechain" min="0" max="1" step="0.05" value="0">
-
-  <button id="go" type="submit">Mix</button>
+  <button id="auto" type="button" class="primary">Auto Mix (recommended)</button>
+  <button id="go" type="submit">Mix with my settings</button>
   <div id="status"></div>
   <div id="links"></div>
 </form>
@@ -311,34 +306,33 @@ function showFiles(){const n=inp.files.length;$('#files').textContent=n?[...inp.
 $('#intensity').oninput=e=>$('#iv').textContent=(+e.target.value).toFixed(2);
 $('#vocal').oninput=e=>$('#vv').textContent=(+e.target.value).toFixed(2);
 $('#tone').oninput=e=>$('#tv').textContent=(+e.target.value).toFixed(2);
-$('#reverb').oninput=e=>$('#rv').textContent=(+e.target.value).toFixed(2);
-$('#delay').oninput=e=>$('#dv').textContent=(+e.target.value).toFixed(2);
-$('#drive').oninput=e=>$('#gv').textContent=(+e.target.value).toFixed(2);
-$('#sidechain').oninput=e=>$('#sv').textContent=(+e.target.value).toFixed(2);
-$('#f').addEventListener('submit',async ev=>{
-  ev.preventDefault();
+async function doMix(auto){
   if(!inp.files.length){$('#status').textContent='Please choose some .wav stems first.';return;}
   const fd=new FormData();
   for(const f of inp.files)fd.append('stems',f);
   fd.append('genre',$('#genre').value);
-  fd.append('intensity',$('#intensity').value);
-  fd.append('vocal',$('#vocal').value);
-  fd.append('tone',$('#tone').value);
-  fd.append('reverb',$('#reverb').value);
-  fd.append('delay',$('#delay').value);
-  fd.append('drive',$('#drive').value);
-  fd.append('sidechain',$('#sidechain').value);
-  $('#go').disabled=true;$('#links').innerHTML='';$('#dash').innerHTML='';
-  $('#status').textContent='Mixing '+inp.files.length+' stems… (this can take a bit)';
+  if(auto){
+    fd.append('auto','1');
+  } else {
+    fd.append('intensity',$('#intensity').value);
+    fd.append('vocal',$('#vocal').value);
+    fd.append('tone',$('#tone').value);
+  }
+  $('#go').disabled=true;$('#auto').disabled=true;$('#links').innerHTML='';$('#dash').innerHTML='';
+  $('#status').textContent=(auto?'Auto-mixing ':'Mixing ')+inp.files.length+' stems… (this can take a bit)';
   try{
     const r=await fetch('/mix',{method:'POST',body:fd});
     const d=await r.json();
-    if(!d.ok){$('#status').textContent='Error: '+d.error;$('#go').disabled=false;return;}
-    $('#status').textContent='Done — '+d.tracks+' tracks mixed. Master: '+d.lufs+' LUFS, peak '+d.peak+' dBFS.';
-    $('#links').innerHTML='<a class="dl" href="'+d.master+'" download>Download master.wav</a>'
-      +'<a class="dl rep" href="'+d.report+'" target="_blank">View report</a>';
-    $('#dash').innerHTML='<iframe src="'+d.dashboard+'"></iframe>';
+    if(!d.ok){$('#status').textContent='Error: '+d.error;}
+    else{
+      $('#status').textContent='Done — '+d.tracks+' tracks mixed. Master: '+d.lufs+' LUFS, peak '+d.peak+' dBFS.';
+      $('#links').innerHTML='<a class="dl" href="'+d.master+'" download>Download master.wav</a>'
+        +'<a class="dl rep" href="'+d.report+'" target="_blank">View report</a>';
+      $('#dash').innerHTML='<iframe src="'+d.dashboard+'"></iframe>';
+    }
   }catch(e){$('#status').textContent='Error: '+e;}
-  $('#go').disabled=false;
-});
+  $('#go').disabled=false;$('#auto').disabled=false;
+}
+$('#f').addEventListener('submit',ev=>{ev.preventDefault();doMix(false);});
+$('#auto').addEventListener('click',()=>doMix(true));
 </script></body></html>"""

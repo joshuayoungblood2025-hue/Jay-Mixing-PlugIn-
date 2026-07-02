@@ -202,6 +202,15 @@ renames the outputs (the DrumSep labels are Spanish: bombo→Kick, redoblante→
 platillos→Cymbals, toms→Toms). No model ships with this repo; professional separation is a
 trained neural network, so it runs on your machine, not in this package.
 
+## Mix-prep mode (balance/EQ/comp/pan only — master in your DAW)
+
+Set `master=False` (CLI `--no-master`, and the **default in the web app**) to get a clean,
+**un-mastered** mix: it still classifies, **gain-stages, balances, EQs, compresses and pans**
+every track, but skips bus glue, loudness maximizing, the limiter, and creative FX. The
+output is peak-normalized to ~ -6 dBFS so it doesn't clip and leaves headroom to **master
+and add reverb/delay/saturation yourself in Logic** (or any DAW). One-click **Auto Mix** in
+the app uses genre-appropriate settings so you don't touch a single fader.
+
 ## Creative FX (reverb / delay / saturation)
 
 Beyond the technical mix, the engine adds tasteful **creative processing** via role-aware
